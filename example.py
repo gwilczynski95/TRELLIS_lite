@@ -1,20 +1,28 @@
 import os
-# os.environ['ATTN_BACKEND'] = 'xformers'   # Can be 'flash-attn' or 'xformers', default is 'flash-attn'
+import sys
+from pathlib import Path
+
+os.environ.setdefault('ATTN_BACKEND', 'xformers')
+os.environ.setdefault('SPARSE_ATTN_BACKEND', 'xformers')
 os.environ['SPCONV_ALGO'] = 'native'        # Can be 'native' or 'auto', default is 'auto'.
                                             # 'auto' is faster but will do benchmarking at the beginning.
                                             # Recommended to set to 'native' if run only once.
+
+WORKSHOP_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(WORKSHOP_ROOT / 'src'))
+from trellis_models import configure_local_trellis_models
 
 import imageio
 from PIL import Image
 from trellis.pipelines import TrellisImageTo3DPipeline
 from trellis.utils import render_utils, postprocessing_utils
 
-# Load a pipeline from a model folder or a Hugging Face model hub.
-pipeline = TrellisImageTo3DPipeline.from_pretrained("microsoft/TRELLIS-image-large")
+# Load all weights from the workshop's models/trellis directory.
+pipeline = TrellisImageTo3DPipeline.from_pretrained(configure_local_trellis_models())
 pipeline.cuda()
 
 # Load an image
-image = Image.open("assets/example_image/T.png")
+image = Image.open(Path(__file__).resolve().parent / "assets/example_image/T.png")
 
 # Run the pipeline
 outputs = pipeline.run(
