@@ -11,6 +11,7 @@
 
 import torch
 import math
+import inspect
 from easydict import EasyDict as edict
 import numpy as np
 from ..representations.gaussian import Gaussian
@@ -70,13 +71,11 @@ def render(viewpoint_camera, pc : Gaussian, pipe, bg_color : torch.Tensor, scali
     kernel_size = pipe.kernel_size
     subpixel_offset = torch.zeros((int(viewpoint_camera.image_height), int(viewpoint_camera.image_width), 2), dtype=torch.float32, device="cuda")
 
-    raster_settings = GaussianRasterizationSettings(
+    raster_settings_kwargs = dict(
         image_height=int(viewpoint_camera.image_height),
         image_width=int(viewpoint_camera.image_width),
         tanfovx=tanfovx,
         tanfovy=tanfovy,
-        kernel_size=kernel_size,
-        subpixel_offset=subpixel_offset,
         bg=bg_color,
         scale_modifier=scaling_modifier,
         viewmatrix=viewpoint_camera.world_view_transform,
@@ -84,8 +83,17 @@ def render(viewpoint_camera, pc : Gaussian, pipe, bg_color : torch.Tensor, scali
         sh_degree=pc.active_sh_degree,
         campos=viewpoint_camera.camera_center,
         prefiltered=False,
-        debug=pipe.debug
+        debug=pipe.debug,
     )
+    settings_parameters = inspect.signature(GaussianRasterizationSettings).parameters
+    if "kernel_size" in settings_parameters:
+        # mip-splatting rasterizer used by the original TRELLIS setup.
+        raster_settings_kwargs["kernel_size"] = kernel_size
+        raster_settings_kwargs["subpixel_offset"] = subpixel_offset
+    if "antialiasing" in settings_parameters:
+        # graphdeco-inria rasterizer, shared with gaussian-splatting.
+        raster_settings_kwargs["antialiasing"] = False
+    raster_settings = GaussianRasterizationSettings(**raster_settings_kwargs)
     
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 
@@ -121,7 +129,7 @@ def render(viewpoint_camera, pc : Gaussian, pipe, bg_color : torch.Tensor, scali
         colors_precomp = override_color
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
-    rendered_image, radii = rasterizer(
+    rasterizer_output = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = shs,
@@ -131,6 +139,7 @@ def render(viewpoint_camera, pc : Gaussian, pipe, bg_color : torch.Tensor, scali
         rotations = rotations,
         cov3D_precomp = cov3D_precomp
     )
+    rendered_image, radii = rasterizer_output[:2]
 
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
